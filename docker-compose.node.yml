@@ -1,0 +1,62 @@
+# GPU 노드 1대분 스택 (app + ollama). 노드마다 이 파일을 동일하게 배포하세요.
+# 실행: docker compose -f docker-compose.node.yml up -d --build
+# 노드 앞에는 lb/ 의 Nginx가 있고, app 포트는 사설 IP(NODE_BIND_IP)에만 열어 LB에서만 접근하게 합니다.
+services:
+  ollama:
+    image: ollama/ollama:latest          # 운영에서는 버전 태그로 고정 권장
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}   # GPU 메모리 여유를 보며 올리기 (nvidia-smi 확인)
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    # deploy:
+      # resources:
+        # reservations:
+          # devices:
+            # - driver: nvidia
+              # count: all
+              # capabilities: [gpu]
+    # 포트 비공개 (같은 노드의 app만 접근)
+    ports:
+      - "11434:11434"
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull ${MODEL_NAME:-qwen2.5:7b} && sleep 5"]
+    restart: "no"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    ports:
+      - "${NODE_BIND_IP:-0.0.0.0}:80:80"   # 예: NODE_BIND_IP=10.0.0.11 (사설 IP) + 방화벽으로 LB만 허용
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      MODEL_NAME: ${MODEL_NAME:-qwen2.5:7b}
+      NUM_CTX: ${NUM_CTX:-8192}
+      API_KEY: ${API_KEY:?API_KEY is required}          # 모든 노드가 같은 값
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:-}                   # 비우면 노드 로컬 SQLite 샘플, 채우면 공유 PostgreSQL
+    volumes:
+      - app_data:/data
+
+volumes:
+  ollama_models:
+  app_data:

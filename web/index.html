@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fb">
+  <title>AI Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #f5f7fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+
+    body { margin: 0; min-height: 100vh; }
+
+    .shell {
+      width: min(920px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: #334ee8;
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    h1 { margin: 0; font-size: 19px; letter-spacing: -0.03em; }
+    .subtitle { margin: 4px 0 0; color: #778198; font-size: 13px; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #667085;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #a7afbd; }
+    .status[data-state="ready"] .dot { background: #20a46b; }
+    .status[data-state="error"] .dot { background: #d94343; }
+
+    .panel {
+      flex: 1;
+      min-height: 420px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid #e5e9f1;
+      border-radius: 20px;
+      background: white;
+      box-shadow: 0 12px 40px rgb(26 39 74 / 5%);
+    }
+
+    .messages {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+      overflow-y: auto;
+      padding: 26px;
+    }
+
+    .message {
+      max-width: min(78%, 680px);
+      padding: 13px 16px;
+      border-radius: 16px;
+      line-height: 1.65;
+      font-size: 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .message.assistant { border: 1px solid #edf0f5; background: #f7f8fb; }
+    .message.user { align-self: flex-end; background: #334ee8; color: white; }
+    .message.error { border: 1px solid #f1caca; background: #fff7f7; color: #a32929; }
+
+    .composer {
+      padding: 16px 20px 20px;
+      border-top: 1px solid #edf0f5;
+    }
+
+    input, textarea, button { font: inherit; }
+
+    textarea {
+      width: 100%;
+      border: 1px solid #dfe4ed;
+      border-radius: 12px;
+      outline: none;
+      background: white;
+      color: #172033;
+    }
+
+    textarea { min-height: 52px; max-height: 160px; resize: vertical; padding: 14px; line-height: 1.5; }
+    textarea:focus { border-color: #8393f2; box-shadow: 0 0 0 3px rgb(51 78 232 / 10%); }
+    .captcha-widget { min-height: 66px; margin-bottom: 8px; }
+
+    .send {
+      min-width: 88px;
+      border: 0;
+      border-radius: 12px;
+      background: #334ee8;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .send:hover { background: #273fc8; }
+    .send:disabled { cursor: wait; opacity: .6; }
+
+    .input-row { display: flex; align-items: stretch; gap: 10px; }
+    .hint { margin: 9px 2px 0; color: #8a93a5; font-size: 11px; }
+
+    @media (max-width: 600px) {
+      .shell { padding: 20px 12px; gap: 14px; }
+      .panel { min-height: calc(100vh - 110px); border-radius: 16px; }
+      .messages { padding: 18px 14px; }
+      .message { max-width: 90%; }
+      .composer { padding: 12px; }
+      .send { min-width: 68px; }
+      .status { font-size: 0; }
+      .status .dot { width: 10px; height: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">
+        <div class="mark" aria-hidden="true">A</div>
+        <div>
+          <h1>AI Agent</h1>
+          <p class="subtitle">무엇이든 편하게 질문해 보세요</p>
+        </div>
+      </div>
+      <div id="status" class="status" data-state="checking" role="status">
+        <span class="dot" aria-hidden="true"></span><span id="status-text">서버 확인 중</span>
+      </div>
+    </header>
+
+    <section class="panel" aria-label="AI 채팅">
+      <div id="messages" class="messages" aria-live="polite">
+        <div class="message assistant">안녕하세요! CAPTCHA 인증을 완료한 뒤 질문을 입력해 주세요.</div>
+      </div>
+      <form id="chat-form" class="composer">
+        <div id="captcha-widget" class="captcha-widget" aria-label="봇 확인"></div>
+        <div class="input-row">
+          <textarea id="message-input" placeholder="메시지를 입력하세요..." aria-label="메시지" maxlength="2000" required></textarea>
+          <button id="send-button" class="send" type="submit" disabled>보내기</button>
+        </div>
+        <p class="hint">비회원 요청은 IP당 분당 3회로 제한됩니다.</p>
+      </form>
+    </section>
+  </main>
+
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer onload="window.renderGuestCaptcha?.()"></script>
+  <script>
+    const form = document.querySelector("#chat-form");
+    const messageInput = document.querySelector("#message-input");
+    const sendButton = document.querySelector("#send-button");
+    const messages = document.querySelector("#messages");
+    const status = document.querySelector("#status");
+    const statusText = document.querySelector("#status-text");
+    let guestEnabled = false;
+    let sending = false;
+    let captchaToken = "";
+    let captchaWidget;
+
+    function addMessage(text, kind) {
+      const element = document.createElement("div");
+      element.className = `message ${kind}`;
+      element.textContent = text;
+      messages.append(element);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function checkReady() {
+      try {
+        const [readyResponse, configResponse] = await Promise.all([
+          fetch("/ready"),
+          fetch("/guest/config")
+        ]);
+        if (!readyResponse.ok || !configResponse.ok) throw new Error("not ready");
+        const config = await configResponse.json();
+        if (!config.enabled) {
+          status.dataset.state = "error";
+          statusText.textContent = "CAPTCHA 설정 필요";
+          addMessage("게스트 채팅이 아직 설정되지 않았습니다. 운영자가 도메인과 Turnstile 키를 설정해야 합니다.", "error");
+          return;
+        }
+        guestEnabled = true;
+        window.guestSiteKey = config.site_key;
+        status.dataset.state = "ready";
+        statusText.textContent = "서비스 준비 완료";
+        window.renderGuestCaptcha();
+      } catch {
+        status.dataset.state = "error";
+        statusText.textContent = "서버 연결 확인 필요";
+      }
+    }
+
+    function updateSendButton() {
+      sendButton.disabled = !guestEnabled || !captchaToken || sending;
+    }
+
+    window.renderGuestCaptcha = function () {
+      if (!guestEnabled || !window.turnstile || captchaWidget !== undefined) return;
+      captchaWidget = window.turnstile.render("#captcha-widget", {
+        sitekey: window.guestSiteKey,
+        callback: (token) => {
+          captchaToken = token;
+          updateSendButton();
+        },
+        "expired-callback": () => {
+          captchaToken = "";
+          updateSendButton();
+        },
+        "error-callback": () => {
+          captchaToken = "";
+          updateSendButton();
+        }
+      });
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = messageInput.value.trim();
+      const token = captchaToken;
+      if (!message || !token || sendButton.disabled) return;
+
+      addMessage(message, "user");
+      messageInput.value = "";
+      sending = true;
+      updateSendButton();
+      sendButton.textContent = "응답 중";
+
+      try {
+        const response = await fetch("/guest/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, captcha_token: token }),
+          signal: AbortSignal.timeout(360000)
+        });
+        const responseText = await response.text();
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch {
+          const statusMessage = `서버가 JSON 대신 오류 페이지를 반환했습니다 (HTTP ${response.status}). 서버 상태와 로그를 확인해 주세요.`;
+          throw new Error(statusMessage);
+        }
+        if (!response.ok) {
+          const detail = typeof result.detail === "string" ? result.detail : `요청 실패 (${response.status})`;
+          throw new Error(detail);
+        }
+        addMessage(result.answer, "assistant");
+      } catch (error) {
+        const text = error.name === "TimeoutError"
+          ? "응답 시간이 초과됐습니다. 잠시 후 다시 시도해 주세요."
+          : error.message === "Failed to fetch"
+            ? "서버에 연결할 수 없습니다. 서버 상태를 확인해 주세요."
+            : error.message;
+        addMessage(text, "error");
+      } finally {
+        sending = false;
+        captchaToken = "";
+        if (window.turnstile && captchaWidget !== undefined) {
+          window.turnstile.reset(captchaWidget);
+        }
+        updateSendButton();
+        sendButton.textContent = "보내기";
+        messageInput.focus();
+      }
+    });
+
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    checkReady();
+  </script>
+</body>
+</html>

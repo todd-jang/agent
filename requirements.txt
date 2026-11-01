@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+requests==2.32.3
+langgraph==0.3.34
+langchain==0.3.24
+langchain-community==0.3.23
+langchain-ollama>=0.3.0,<0.4
+psycopg[binary]==3.2.4

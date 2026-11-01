@@ -1,0 +1,73 @@
+# 단일 서버 전체 스택 (Nginx + FastAPI 앱 + Ollama)
+# 실행: cp .env.example .env 후 API_KEY를 설정하고 docker compose up -d --build
+services:
+  # Keep model storage in a Docker-managed volume; do not bind this to a host path.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull ${MODEL_NAME:-qwen2.5:7b}"]
+    restart: "no"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      MODEL_NAME: ${MODEL_NAME:-qwen2.5:7b}
+      NUM_CTX: ${NUM_CTX:-8192}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-300}
+      API_KEY: ${API_KEY:?API_KEY is required}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+    volumes:
+      - app_data:/data
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ./default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
+      - ./web:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/lb-health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  ollama_models:
+  app_data:
